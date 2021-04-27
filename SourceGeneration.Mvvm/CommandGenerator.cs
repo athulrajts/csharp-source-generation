@@ -1,6 +1,7 @@
 ﻿using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
 using Microsoft.CodeAnalysis.Text;
+using SourceGeneration.Mvvm.Helpers;
 using System;
 using System.CodeDom.Compiler;
 using System.Collections.Generic;
@@ -142,74 +143,66 @@ namespace SourceGeneration.Mvvm
             string namespaceName = classSymbol.ContainingNamespace.ToDisplayString();
 
             StringWriter sw = new StringWriter();
-            IndentedTextWriter source = new IndentedTextWriter(sw);
+            SourceWriter source = new SourceWriter(sw);
 
             INamedTypeSymbol attributeSymbol = context.Compilation.GetTypeByMetadataName("SourceGeneration.Mvvm.GenerateCommandAttribute");
 
             source.WriteLine("using SourceGeneration.Mvvm;");
             source.WriteLine("using System.Windows.Input;");
             source.WriteLine();
-            source.WriteLine($"namespace {namespaceName}");
-            source.WriteLine("{");
-            source.Indent++;
-            source.WriteLine($"public partial class {classSymbol.Name}");
-            source.WriteLine("{");
-            source.Indent++;
 
-            foreach (IMethodSymbol methodSymbol in methodSymbols)
+            using (source.StartBlock($"namespace {namespaceName}"))
             {
-                int paramCount = methodSymbol.Parameters.Count();
-                if (paramCount > 1)
+                using (source.StartBlock($"public partial class {classSymbol.Name}"))
                 {
-                    context.ReportDiagnostic(Diagnostic.Create(new DiagnosticDescriptor("SG001",
-                        "Invalid method signature",
-                        "Method cannot contain more than 1 arguments",
-                        "Design",
-                        DiagnosticSeverity.Error,
-                        true),
-                        methodSymbol.Locations.FirstOrDefault(), methodSymbol.Name, methodSymbol.ReturnType.Name));
+                    foreach (IMethodSymbol methodSymbol in methodSymbols)
+                    {
+                        int paramCount = methodSymbol.Parameters.Count();
+                        if (paramCount > 1)
+                        {
+                            context.ReportDiagnostic(Diagnostic.Create(new DiagnosticDescriptor("SG001",
+                                "Invalid method signature",
+                                "Method cannot contain more than 1 arguments",
+                                "Design",
+                                DiagnosticSeverity.Error,
+                                true),
+                                methodSymbol.Locations.FirstOrDefault(), methodSymbol.Name, methodSymbol.ReturnType.Name));
+                        }
+
+                        bool isGeneric = paramCount == 1;
+
+                        string executeName = methodSymbol.Name;
+                        string commandName = GetCommandName(methodSymbol, attributeSymbol);
+                        string canExecuteName = GetCanExecuteName(methodSymbol, attributeSymbol);
+                        string backingField = $"_{commandName.Substring(0, 1).ToLower()}{commandName.Substring(1)}";
+                        bool hasCanExecute = classSymbol.GetMembers($"{canExecuteName}").Length > 0;
+
+                        source.Write($"private ICommand {backingField};");
+                        source.WriteLine();
+
+                        using (source.StartProperty($"ICommand", commandName))
+                        {
+                            using (source.StartBlock("get"))
+                            {
+                                using (source.StartBlock($"if({backingField} == null)"))
+                                {
+
+                                    string command = isGeneric
+                                        ? CreateGenericCommand(executeName, canExecuteName, methodSymbol.Parameters[0].Type, hasCanExecute)
+                                        : CreateCommand(executeName, canExecuteName, hasCanExecute);
+
+                                    source.WriteLine($"{backingField} = new {command}");
+                                }
+
+                                source.WriteLine($"return {backingField};");
+                            }
+                        }
+
+                        source.WriteLine();
+
+                    }
                 }
-
-                bool isGeneric = paramCount == 1;
-
-                string executeName = methodSymbol.Name;
-                string commandName = GetCommandName(methodSymbol, attributeSymbol);
-                string canExecuteName = GetCanExecuteName(methodSymbol, attributeSymbol);
-                string backingField = $"_{commandName.Substring(0, 1).ToLower()}{commandName.Substring(1)}";
-                bool hasCanExecute = classSymbol.GetMembers($"{canExecuteName}").Length > 0;
-
-                source.Write($"private ICommand {backingField};");
-                source.WriteLine();
-                source.WriteLine($"public ICommand {commandName}");
-                source.WriteLine("{");
-                source.Indent++;
-                source.WriteLine("get");
-                source.WriteLine("{");
-                source.Indent++;
-                source.WriteLine($"if({backingField} == null)");
-                source.WriteLine("{");
-                source.Indent++;
-
-                string command = isGeneric
-                    ? CreateGenericCommand(executeName, canExecuteName, methodSymbol.Parameters[0].Type, hasCanExecute)
-                    : CreateCommand(executeName, canExecuteName, hasCanExecute);
-
-                source.WriteLine($"{backingField} = new {command}");
-                source.Indent--;
-                source.WriteLine("}");
-                source.WriteLine($"return {backingField};");
-                source.Indent--;
-                source.WriteLine("}");
-                source.Indent--;
-                source.WriteLine("}");
-                source.WriteLine();
-
             }
-
-            source.Indent--;
-            source.WriteLine("}");
-            source.Indent--;
-            source.WriteLine("}");
 
             return sw.ToString();
         }

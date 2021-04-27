@@ -1,6 +1,7 @@
 ﻿using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
 using Microsoft.CodeAnalysis.Text;
+using SourceGeneration.Mvvm.Helpers;
 using System;
 using System.CodeDom.Compiler;
 using System.Collections.Generic;
@@ -71,38 +72,36 @@ namespace SourceGeneration.Mvvm
             string namespaceName = classSymbol.ContainingNamespace.ToDisplayString();
 
             StringWriter sw = new StringWriter();
-            IndentedTextWriter source = new IndentedTextWriter(sw);
+            SourceWriter source = new SourceWriter(sw);
 
             // begin building the generated source
-            source.WriteLine($"namespace {namespaceName}");
-            source.WriteLine("{");
-            source.Indent++;
-            source.WriteLine($"public partial class {classSymbol.Name} : {notifySymbol.ToDisplayString()}");
-            source.WriteLine("{");
-            source.Indent++;
+            source.WriteLine("using System.Collections.Generic;");
+            source.WriteLine("using System.ComponentModel;");
+            source.WriteLine();
 
-            // if the class doesn't implement INotifyPropertyChanged already, add it
-            if (!classSymbol.Interfaces.Contains(notifySymbol))
+            using (source.StartBlock($"namespace {namespaceName}"))
             {
-                source.WriteLine("public event System.ComponentModel.PropertyChangedEventHandler PropertyChanged;");
-                source.WriteLine();
-            }
+                using (source.StartBlock($"public partial class {classSymbol.Name} : INotifyPropertyChanged"))
+                {
+                    // if the class doesn't implement INotifyPropertyChanged already, add it
+                    if (!classSymbol.Interfaces.Contains(notifySymbol))
+                    {
+                        source.WriteLine("public event PropertyChangedEventHandler PropertyChanged;");
+                        source.WriteLine();
+                    }
 
-            // create properties for each field 
-            foreach (IFieldSymbol fieldSymbol in fields)
-            {
-                GenerateProperty(source, fieldSymbol, attributeSymbol);
+                    // create properties for each field 
+                    foreach (IFieldSymbol fieldSymbol in fields)
+                    {
+                        GenerateProperty(source, fieldSymbol, attributeSymbol);
+                    }
+                }
             }
-
-            source.Indent--;
-            source.WriteLine("}");
-            source.Indent--;
-            source.WriteLine("}");
 
             return sw.ToString();
         }
 
-        private void GenerateProperty(IndentedTextWriter source, IFieldSymbol fieldSymbol, ISymbol attributeSymbol)
+        private void GenerateProperty(SourceWriter source, IFieldSymbol fieldSymbol, ISymbol attributeSymbol)
         {
             // get the name and type of the field
             string fieldName = fieldSymbol.Name;
@@ -120,27 +119,22 @@ namespace SourceGeneration.Mvvm
             }
 
             //  === Property Accessors === //
-            
-            source.WriteLine($"public {fieldType} {propertyName}");
-            source.WriteLine("{");
-            source.Indent++;
-            source.WriteLine($"get {{ return {fieldName}; }}");
-            source.WriteLine("set");
-            source.WriteLine("{");
-            source.Indent++;
-            source.WriteLine($"if(System.Collections.Generic.EqualityComparer<{fieldType}>.Default.Equals(value) == false)");
-            source.WriteLine("{");
-            source.Indent++;
-            source.WriteLine($"{fieldType} tmp = {fieldName};");
-            source.WriteLine($"{fieldName} = value;");
-            source.WriteLine($"PropertyChanged?.Invoke(this, new System.ComponentModel.PropertyChangedEventArgs(nameof({propertyName})));");
-            source.WriteLine($"On{propertyName}Changed(tmp, {fieldName});");
-            source.Indent--;
-            source.WriteLine("}");
-            source.Indent--;
-            source.WriteLine("}");
-            source.Indent--;
-            source.WriteLine("}");
+
+            using (source.StartProperty(fieldType.ToString(), propertyName))
+            {
+                source.WriteLine($"get {{ return {fieldName}; }}");
+                using (source.StartBlock("set"))
+                {
+                    using (source.StartBlock($"if(EqualityComparer<{fieldType}>.Default.Equals(value) == false)"))
+                    {
+                        source.WriteLine($"{fieldType} tmp = {fieldName};");
+                        source.WriteLine($"{fieldName} = value;");
+                        source.WriteLine($"PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof({propertyName})));");
+                        source.WriteLine($"On{propertyName}Changed(tmp, {fieldName});");
+                    }
+                }
+            }
+
             source.WriteLine();
 
             // === Property Accessors === /

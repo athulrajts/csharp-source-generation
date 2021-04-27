@@ -1,6 +1,7 @@
 ﻿using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
 using Microsoft.CodeAnalysis.Text;
+using SourceGeneration.Mvvm.Helpers;
 using System;
 using System.CodeDom.Compiler;
 using System.Collections.Generic;
@@ -42,7 +43,7 @@ namespace SourceGeneration.Mvvm
                 return;
             }
 
-            if(receiver.Properties.Count == 0)
+            if (receiver.Properties.Count == 0)
             {
                 return;
             }
@@ -93,71 +94,40 @@ namespace SourceGeneration.Mvvm
             string onPropertyChanged = "OnPropertyChanged";
 
             StringWriter sw = new StringWriter();
-            IndentedTextWriter source = new IndentedTextWriter(sw);
+            SourceWriter source = new SourceWriter(sw);
 
             source.WriteLine("using System.ComponentModel;");
             source.WriteLine();
 
-            source.WriteLine($"namespace {namespaceName}");
+            using (source.StartBlock($"namespace {namespaceName}"))
             {
-                source.WriteLine("{");
-                source.Indent++;
-                source.WriteLine($"public partial class {classSymbol.Name}");
+                using (source.StartBlock($"public partial class {classSymbol.Name}"))
                 {
-                    source.WriteLine("{");
-                    source.Indent++;
-                    source.WriteLine($"void ListenForPropertyChange()");
+                    using (source.StartFunction("void", "ListenForPropertyChange"))
                     {
-                        source.WriteLine("{");
-                        source.Indent++;
-
                         source.WriteLine($"PropertyChanged += {onPropertyChanged};");
-
-                        source.Indent--;
-                        source.WriteLine("}");
-                        source.WriteLine();
                     }
 
-                    source.WriteLine($"void {onPropertyChanged}(object sender, PropertyChangedEventArgs e)");
+                    source.WriteLine();
+
+                    using (source.StartFunction($"void", onPropertyChanged, "object sender, PropertyChangedEventArgs e"))
                     {
-                        source.WriteLine("{");
-                        source.Indent++;
-
-                        source.WriteLine($"switch(e.PropertyName)");
+                        using (source.StartBlock($"switch(e.PropertyName)"))
                         {
-                            source.WriteLine("{");
-                            source.Indent++;
-
                             foreach (var kv in props)
                             {
-                                source.WriteLine($"case \"{kv.Key}\":");
+                                using (source.StartBlock($"case \"{kv.Key}\":"))
                                 {
-                                    source.WriteLine("{");
-                                    source.Indent++;
-
                                     foreach (var propName in kv.Value)
                                     {
-                                        source.WriteLine($"PropertyChanged?.Invoke(this, new System.ComponentModel.PropertyChangedEventArgs(nameof({propName})));");
+                                        source.WriteLine($"PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof({propName})));");
                                     }
                                     source.WriteLine("break;");
-                                    source.Indent--;
-                                    source.WriteLine("}");
                                 }
                             }
-
-                            source.Indent--;
-                            source.WriteLine("}");
                         }
-
-                        source.Indent--;
-                        source.WriteLine("}");
                     }
-
-                    source.Indent--;
-                    source.WriteLine("}");
                 }
-                source.Indent--;
-                source.WriteLine("}");
             }
 
             return sw.ToString();
